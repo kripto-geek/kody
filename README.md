@@ -19,7 +19,7 @@ python3 kody.py
 
 ## Usage
 bash
-./kody.py [options]
+./kody.py
 
 
 ## Configuration
