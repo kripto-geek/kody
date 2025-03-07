@@ -43,7 +43,7 @@ Check out fabric's github page for your proeferred way of installation and setup
 
 Or if you wish you can download it directly from source (golang) : go install github.com/danielmiessler/fabric@latest
 
-Next is to setup fabric with your ai model: thorugh fabric --setup
+Next is to setup fabric with your ai model: thorugh fabric --setup (The tool is mostly tested to work with the openroute's deepseek-chat:free model)
 
 Once your fabric thig is done: 
 Install the tool:
