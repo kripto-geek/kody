@@ -5,7 +5,7 @@ Kody is just a wrap for fabric tool, therefore it needs the fabric tool (https:/
 
 ## Commands
 
-  chat <message>
+  chat
       General chat with the AI.
       Example: chat What do you think of my error handling?
 
