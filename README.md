@@ -5,36 +5,36 @@ Kody is just a wrap for fabric tool, therefore it needs the fabric tool (https:/
 
 ## Commands
 
-  chat
+  chat: 
       General chat with the AI.
       Example: chat What do you think of my error handling?
 
-  show-file <filename>
+  show-file: 
       Display a file's content.
       Example: show-file index.html
 
-  project-list
+  project-list: 
       List all project files.
 
-  project-refresh
+  project-refresh: 
       Re-scan the current directory.
 
-  project update <instruction>
+  project update: 
       Update the project by modifying/creating files.
       Example: project update make a complete flask app with any fun api.
 
-  bashcmd <instruction>
+  bashcmd:
       Ask the AI to generate a bash command to perform a task.
       Example: bashcmd create a blank notes.txt file in current directory
 
-  exec <shell command>
+  exec: 
       Execute a bash command.
       Example: exec ls -la
 
-  help or usage
+  help or usage: 
       Show these instructions.
 
-  exit or quit
+  exit or quit: 
       Exit KODY.
 
 ## Setup
