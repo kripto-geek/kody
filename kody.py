@@ -20,7 +20,6 @@ except ImportError:
 # Configuration & Color Codes
 # ------------------------------
 IGNORED_EXTENSIONS = {".jpg", ".png", ".gif", ".bmp", ".mp3", ".mp4", ".zip", ".tar", ".gz", ".pdf", ".exe", ".bin"}
-# Also ignore these directories during scanning.
 IGNORED_DIRS = {"node_modules", "vendor", "dist", "build", "images", "audio"}
 
 COLOR_RESET = "\033[0m"
@@ -96,7 +95,6 @@ def is_readable_file(filepath):
 def scan_project():
     project_files = {}
     for root, dirs, files in os.walk('.'):
-        # Remove ignored directories so os.walk doesn't descend into them.
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
         for file in files:
             filepath = os.path.join(root, file)
@@ -113,7 +111,7 @@ def truncate_content(content, limit=500):
     return content if len(content) <= limit else content[:limit] + "\n...[truncated]"
 
 def build_project_prompt(project_files, instruction):
-    prompt = "The following is the project structure with file paths and contents:\n\n"
+    prompt = "The following is the project structure with file paths and truncated contents:\n\n"
     for filename, content in project_files.items():
         prompt += f"File: {filename}\nContent:\n{truncate_content(content)}\n"
         prompt += "-----------------------------\n"
@@ -130,6 +128,15 @@ def build_project_prompt(project_files, instruction):
         "    ...\n"
         "]}\n\n"
         "If no changes/creations are needed, return an empty JSON object with the corresponding key."
+    )
+    return prompt
+
+def build_bash_prompt(project_files, instruction):
+    file_list = "\n".join(sorted(project_files.keys()))
+    prompt = (
+        f"Current directory files:\n{file_list}\n\n"
+        f"Instruction: {instruction}\n"
+        "Generate a bash command that accomplishes this task. Return only the command without any markdown formatting."
     )
     return prompt
 
@@ -272,7 +279,7 @@ def show_file(filename):
         return f"Error reading file '{filename}': {e}"
 
 # ------------------------------
-# Project Update Function (Modifications + Creations)
+# Project Update Function (Modifications & Creations)
 # ------------------------------
 def project_update(project_ctx, chat_session, instruction):
     prompt = build_project_prompt(project_ctx.files, instruction)
@@ -355,18 +362,34 @@ def project_update(project_ctx, chat_session, instruction):
                 print(f"{COLOR_YELLOW}Creation for file {filename} cancelled.{COLOR_RESET}")
 
 # ------------------------------
-# Project Initialization Command
+# Bash Command Generation Function
 # ------------------------------
-def project_init(chat_session, instruction):
-    prompt = f"Provide the bash command to initialize a project with the following requirements: {instruction}. Return only the command."
+def generate_bash_command(chat_session, project_ctx, instruction):
+    file_list = "\n".join(sorted(project_ctx.list_files()))
+    prompt = (
+        f"Current directory files:\n{file_list}\n\n"
+        f"Instruction: {instruction}\n"
+        "Generate a bash command that accomplishes this task. Return only the command without any markdown formatting."
+    )
     response = chat_session.send_message(prompt)
     command = response.strip()
-    print(arrow_wrap("Initialization Command: " + command))
-    confirm = input(f"{COLOR_GREEN}Execute this initialization command? (y/n): {COLOR_RESET}").strip().lower()
+    # Remove any markdown formatting if present
+    command = re.sub(r"^```bash\s*", "", command)
+    command = re.sub(r"```$", "", command)
+    # Display the command in a distinct, creative box.
+    box_width = 60
+    box_top = "┌" + "─" * box_width + "┐"
+    box_bottom = "└" + "─" * box_width + "┘"
+    box_content = f"│{COLOR_CYAN} Proposed Bash Command: {COLOR_RESET}\n│ {command}\n"
+    separator = "│" + " " * box_width + "│"
+    print(f"{COLOR_CYAN}{box_top}{COLOR_RESET}")
+    print(f"{COLOR_CYAN}{box_content}{COLOR_RESET}")
+    print(f"{COLOR_CYAN}{box_bottom}{COLOR_RESET}")
+    confirm = input(f"{COLOR_GREEN}Execute this command? (y/n): {COLOR_RESET}").strip().lower()
     if confirm == "y":
         exec_command(command)
     else:
-        print(f"{COLOR_YELLOW}Initialization cancelled.{COLOR_RESET}")
+        print(f"{COLOR_YELLOW}Bash command execution cancelled.{COLOR_RESET}")
 
 # ------------------------------
 # Command Execution Function
@@ -380,37 +403,37 @@ def exec_command(command):
         print(f"{COLOR_RED}Error executing command: {e}{COLOR_RESET}")
 
 # ------------------------------
-# Main Interactive Loop
+# Main Interactive Loop & Command Parsing
 # ------------------------------
 def print_usage():
     usage_text = f"""{COLOR_BOLD}{COLOR_CYAN}KODY - Interactive AI Project CLI Tool{COLOR_RESET}
 
 Commands:
   {COLOR_YELLOW}chat <message>{COLOR_RESET}
-      General conversation with the AI.
+      General chat with the AI.
       Example: {COLOR_GREEN}chat What do you think of my error handling?{COLOR_RESET}
 
   {COLOR_YELLOW}show-file <filename>{COLOR_RESET}
-      Display a file’s content.
+      Display a file's content.
       Example: {COLOR_GREEN}show-file index.html{COLOR_RESET}
 
   {COLOR_YELLOW}project-list{COLOR_RESET}
       List all project files.
 
   {COLOR_YELLOW}project-refresh{COLOR_RESET}
-      Re-scan the current directory for files.
-
-  {COLOR_YELLOW}project init <instruction>{COLOR_RESET}
-      Ask the AI to provide a bash command to initialize a project (e.g., create a React app).
-      Example: {COLOR_GREEN}project init create a react app helloworld{COLOR_RESET}
+      Re-scan the current directory.
 
   {COLOR_YELLOW}project update <instruction>{COLOR_RESET}
-      Update the project by modifying or creating files based on your instruction.
-      Example: {COLOR_GREEN}project update modify index.html contact section to match the website theme{COLOR_RESET}
+      Update the project by modifying/creating files.
+      Example: {COLOR_GREEN}project update modify the contact section in index.html to match the theme{COLOR_RESET}
+
+  {COLOR_YELLOW}bashcmd <instruction>{COLOR_RESET}
+      Ask the AI to generate a bash command to perform a task.
+      Example: {COLOR_GREEN}bashcmd create a notes.txt file in current directory{COLOR_RESET}
 
   {COLOR_YELLOW}exec <shell command>{COLOR_RESET}
-      Execute a shell command.
-      Example: {COLOR_GREEN}exec npm install{COLOR_RESET}
+      Execute a bash command.
+      Example: {COLOR_GREEN}exec ls -la{COLOR_RESET}
 
   {COLOR_YELLOW}help{COLOR_RESET} or {COLOR_YELLOW}usage{COLOR_RESET}
       Show these instructions.
@@ -464,35 +487,27 @@ def main():
             print(f"{COLOR_GREEN}Project context refreshed. Total files: {len(project_ctx.files)}{COLOR_RESET}")
         elif cmd == "project":
             if len(tokens) < 2:
-                print(f"{COLOR_RED}Usage: project init|update ...{COLOR_RESET}")
+                print(f"{COLOR_RED}Usage: project update <instruction>{COLOR_RESET}")
                 continue
             subcmd = tokens[1].lower()
-            if subcmd == "init":
-                instruction = user_input.split(None, 2)[2] if len(tokens) >= 3 else ""
-                if instruction:
-                    project_init(chat_session, instruction)
-                else:
-                    print(f"{COLOR_RED}No initialization instruction provided.{COLOR_RESET}")
-            elif subcmd == "update":
+            if subcmd == "update":
                 instruction = user_input.split(None, 2)[2] if len(tokens) >= 3 else ""
                 if instruction:
                     project_update(project_ctx, chat_session, instruction)
                 else:
                     print(f"{COLOR_RED}No update instruction provided.{COLOR_RESET}")
             else:
-                print(f"{COLOR_RED}Unknown project subcommand. Use init or update.{COLOR_RESET}")
-        elif cmd == "modify-project" or cmd == "create-project":
-            # For backward compatibility, treat them as project update.
-            instruction = user_input.split(None, 1)[1] if len(tokens) > 1 else ""
+                print(f"{COLOR_RED}Unknown project subcommand. Use update.{COLOR_RESET}")
+        elif cmd == "bashcmd":
+            instruction = user_input[len("bashcmd "):].strip()
             if instruction:
-                project_update(project_ctx, chat_session, instruction)
+                generate_bash_command(chat_session, project_ctx, instruction)
             else:
-                print(f"{COLOR_RED}No instruction provided.{COLOR_RESET}")
+                print(f"{COLOR_RED}No instruction provided for bashcmd.{COLOR_RESET}")
         elif cmd == "exec":
             command = user_input[len("exec "):].strip()
             exec_command(command)
         else:
-            # Fallback to general chat.
             print(arrow_wrap("User: " + user_input))
             response = chat_session.send_message(user_input)
             print(arrow_wrap("AI: " + response))
