@@ -53,10 +53,7 @@ cd kody
 python kody.py
 ```
 
-You can set the export this tool's PATH to be accessible globally. 
-
-## Configuration
-
+You can set the export this tool's PATH to be accessible globally. Make sure to launch the tool in the directory where your project exist or where you want to create a project. Launching in home directory will make the tool load all unnecessary things from whole system and reach its limit.
 
 ## Contributing
 Contributions are welcome! Please follow the standard fork-and-pull request workflow.
