@@ -40,6 +40,7 @@ Kody is just a wrap for fabric tool, therefore it needs the fabric tool (https:/
 ## Setup
 To use Kody, firstly install the fabric tool.
 Check out fabric's github page for your proeferred way of installation and setup: https://github.com/danielmiessler/fabric
+
 Or if you wish you can download it directly from source (golang) : go install github.com/danielmiessler/fabric@latest
 
 Next is to setup fabric with your ai model: thorugh fabric --setup
