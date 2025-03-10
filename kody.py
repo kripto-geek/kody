@@ -20,7 +20,7 @@ except ImportError:
 # Configuration & Color Codes
 # ------------------------------
 IGNORED_EXTENSIONS = {".jpg", ".png", ".gif", ".bmp", ".mp3", ".mp4", ".zip", ".tar", ".gz", ".pdf", ".exe", ".bin"}
-IGNORED_DIRS = {"node_modules", "vendor", "dist", "build", "images", "audio"}
+IGNORED_DIRS = {"node_modules", "vendor", "dist", "build", ".venv", ".*"}
 
 COLOR_RESET = "\033[0m"
 COLOR_GREEN = "\033[92m"
