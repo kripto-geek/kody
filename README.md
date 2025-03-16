@@ -1,5 +1,7 @@
 # Kody - A Python CLI Tool
 
+![Shot-2025-03-09-114925](https://github.com/user-attachments/assets/8b6008d2-11a9-4098-a97b-877ba2d5cc8c)
+
 Kody is a powerful tool built to ease the use of ai in system directly. With this tool user can ask for performing codings, running bash commands and etc ai features direcly in their termninal without neeeding to copy pase or anything.
 Kody is just a wrap for fabric tool, therefore it needs the fabric tool (https://github.com/danielmiessler/fabric).
 
