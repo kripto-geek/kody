@@ -9,6 +9,8 @@ import sys
 import threading
 import time
 import tempfile
+import json
+import requests
 
 # Optional lenient JSON parser
 try:
@@ -28,6 +30,13 @@ COLOR_YELLOW = "\033[93m"
 COLOR_CYAN = "\033[96m"
 COLOR_RED = "\033[91m"
 COLOR_BOLD = "\033[1m"
+
+# Max character limit for file content (increased from 500)
+MAX_FILE_CONTENT_CHARS = 4000
+# Max number of files to include in context
+MAX_FILES_IN_CONTEXT = 10
+# Memory limit for total context
+MAX_CONTEXT_CHARS = 25000
 
 # ------------------------------
 # Terminal Utilities
@@ -79,11 +88,13 @@ class LoadingSpinner:
 
     def start(self):
         self.done = False
+        self.spinner_thread = threading.Thread(target=self._spin)
         self.spinner_thread.start()
 
     def stop(self):
         self.done = True
-        self.spinner_thread.join()
+        if self.spinner_thread.is_alive():
+            self.spinner_thread.join()
 
 # ------------------------------
 # Project Scanning Functions
@@ -107,19 +118,95 @@ def scan_project():
                     continue
     return project_files
 
-def truncate_content(content, limit=500):
-    return content if len(content) <= limit else content[:limit] + "\n...[truncated]"
+def truncate_content(content, limit=MAX_FILE_CONTENT_CHARS):
+    if len(content) <= limit:
+        return content
 
-def build_project_prompt(project_files, instruction):
-    prompt = "The following is the project structure with file paths and truncated contents:\n\n"
+    # Smart truncation with markers
+    half = limit // 2
+    return content[:half] + "\n\n...[middle content omitted]...\n\n" + content[-half:]
+
+def filter_relevant_files(project_files, instruction, target_file=None):
+    """Select relevant files based on instruction and target file"""
+    if not project_files:
+        return {}
+
+    # If target file is specified, always include it
+    relevant_files = {}
+    if target_file and target_file in project_files:
+        relevant_files[target_file] = project_files[target_file]
+
+    # Extract potential file extensions from instruction
+    words = instruction.lower().split()
+    potential_exts = [w for w in words if w.startswith('.') and len(w) < 6]
+
+    # Calculate relevance score for each file
+    file_scores = {}
     for filename, content in project_files.items():
-        prompt += f"File: {filename}\nContent:\n{truncate_content(content)}\n"
+        if filename in relevant_files:
+            continue
+
+        score = 0
+        # Matching extension mentioned in instruction
+        file_ext = os.path.splitext(filename)[1].lower()
+        if file_ext in potential_exts:
+            score += 5
+
+        # File name mentioned in instruction
+        base_name = os.path.basename(filename).lower()
+        if base_name in instruction.lower():
+            score += 10
+
+        # Give higher score to smaller files (more likely to be relevant)
+        score -= min(5, len(content) // 5000)
+
+        file_scores[filename] = score
+
+    # Add highest scoring files until limit
+    sorted_files = sorted(file_scores.items(), key=lambda x: x[1], reverse=True)
+    files_to_add = min(MAX_FILES_IN_CONTEXT - len(relevant_files), len(sorted_files))
+
+    total_chars = sum(len(content) for content in relevant_files.values())
+    for filename, score in sorted_files[:files_to_add]:
+        if total_chars > MAX_CONTEXT_CHARS:
+            break
+
+        content = project_files[filename]
+        truncated = truncate_content(content)
+        relevant_files[filename] = truncated
+        total_chars += len(truncated)
+
+    return relevant_files
+
+def build_project_prompt(project_files, instruction, target_file=None):
+    # Apply smart file filtering
+    relevant_files = filter_relevant_files(project_files, instruction, target_file)
+
+    prompt = (
+        "I'm working on a project and need help modifying code. Here are the relevant files:\n\n"
+    )
+
+    for filename, content in relevant_files.items():
+        # Highlight target file if specified
+        file_header = f"{'[TARGET] ' if filename == target_file else ''}File: {filename}"
+        prompt += f"{file_header}\nContent:\n{content}\n"
         prompt += "-----------------------------\n"
+
     prompt += f"\nInstruction: {instruction}\n\n"
+
+    # Enhanced instructions for preservation
+    prompt += (
+        "IMPORTANT GUIDELINES:\n"
+        "1. PRESERVE ALL EXISTING FUNCTIONALITY when modifying files.\n"
+        "2. Only change what is necessary to implement the requested feature.\n"
+        "3. Be precise with your modifications.\n"
+        "4. Include ALL original code in your response for any modified files.\n\n"
+    )
+
     prompt += (
         "Return your response in valid JSON format. For modifications, use:\n"
         '{"modifications": [\n'
-        '    {"filename": "<relative_path>", "new_content": "<new content or diff patch>"},\n'
+        '    {"filename": "<relative_path>", "new_content": "<complete file content with modifications>"},\n'
         "    ...\n"
         "]}\n\n"
         "For project creation, use:\n"
@@ -164,15 +251,50 @@ def diff_preview(old, new):
     return diff_text
 
 # ------------------------------
-# Fabric Command Integration
+# AI Integration
 # ------------------------------
-def run_fabric_command(prompt):
+def run_AI_command(prompt):
     try:
-        args = ["fabric", prompt]
-        result = subprocess.run(args, capture_output=True, text=True)
-        return result.stdout.strip() if result.stdout.strip() else result.stderr.strip()
-    except Exception as e:
-        return f"Error calling Fabric: {e}"
+        with open('config.json', 'r') as config_file:
+            config = json.load(config_file)
+
+        url = config['creds']['url']
+        model = config['creds']['model']
+        key = config['creds']['key']
+
+        try:
+            response = requests.post(
+                url=f"{url}",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                data=json.dumps({
+                    "model": f"{model}",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": prompt
+                                }
+                            ]
+                        }
+                    ],
+                })
+            )
+            full_response = response.json()
+            result = full_response["choices"][0]['message']['content']
+            return result
+        except Exception as e:
+            return f"Error calling AI: {e}"
+    except FileNotFoundError:
+        return "Error: config.json not found. Please ensure you have a valid configuration file."
+    except json.JSONDecodeError:
+        return "Error: config.json is not valid JSON."
+    except KeyError as e:
+        return f"Error: Missing required key in config.json: {e}"
 
 # ------------------------------
 # JSON Extraction & Parsing Functions
@@ -239,6 +361,26 @@ def apply_patch_with_system(filename, patch_text):
         os.remove(patch_filename)
 
 # ------------------------------
+# Smart File Selection Helper
+# ------------------------------
+def extract_target_file(instruction):
+    """Try to determine the target file from the instruction"""
+    # Common patterns like "add X to file.py" or "update file.py"
+    patterns = [
+        r'(?:add|modify|update|change|edit).*?(?:to|in|on|at)\s+[\'"]?([^\s\'"]+\.[a-zA-Z0-9]+)[\'"]?',
+        r'[\'"]?([^\s\'"]+\.[a-zA-Z0-9]+)[\'"]?',
+    ]
+
+    for pattern in patterns:
+        matches = re.findall(pattern, instruction, re.IGNORECASE)
+        if matches:
+            for match in matches:
+                # Filter out common false positives
+                if not match.startswith(('.', '/', 'http')) and '.' in match:
+                    return match
+    return None
+
+# ------------------------------
 # Chat Session
 # ------------------------------
 class ChatSession:
@@ -250,7 +392,7 @@ class ChatSession:
         prompt = self.history + "AI: "
         spinner = LoadingSpinner()
         spinner.start()
-        response = run_fabric_command(prompt)
+        response = run_AI_command(prompt)
         spinner.stop()
         self.history += f"{response}\n"
         return response
@@ -268,6 +410,17 @@ class ProjectContext:
     def list_files(self):
         return list(self.files.keys())
 
+    def get_file(self, filename):
+        """Get file content, refreshing if necessary"""
+        if filename not in self.files:
+            # Try to refresh this specific file
+            try:
+                with open(filename, 'r', encoding="utf8") as f:
+                    self.files[filename] = f.read()
+            except Exception:
+                return None
+        return self.files.get(filename)
+
 # ------------------------------
 # File Viewing Function
 # ------------------------------
@@ -282,8 +435,28 @@ def show_file(filename):
 # Project Update Function (Modifications & Creations)
 # ------------------------------
 def project_update(project_ctx, chat_session, instruction):
-    prompt = build_project_prompt(project_ctx.files, instruction)
+    # Try to identify the target file from the instruction
+    target_file = extract_target_file(instruction)
+    if target_file:
+        # Check if the file exists in the project
+        if target_file not in project_ctx.files and os.path.exists(target_file):
+            # Add the file to our context if it exists but wasn't scanned
+            project_ctx.get_file(target_file)
+
+        if target_file in project_ctx.files:
+            print(f"{COLOR_CYAN}Identified target file: {target_file}{COLOR_RESET}")
+        else:
+            print(f"{COLOR_YELLOW}Target file '{target_file}' not found. Planning to create it.{COLOR_RESET}")
+
+    # Build the prompt with smart context management
+    prompt = build_project_prompt(project_ctx.files, instruction, target_file)
+
+    # Generate AI response
+    spinner = LoadingSpinner()
+    spinner.start()
     ai_response = chat_session.send_message(prompt)
+    spinner.stop()
+
     try:
         data = try_parse_json(ai_response)
     except Exception as e:
@@ -301,7 +474,10 @@ def project_update(project_ctx, chat_session, instruction):
         new_content = mod.get("new_content")
         if not filename or new_content is None:
             continue
-        old_content = project_ctx.files.get(filename, "")
+
+        # Refresh file from disk to ensure we have latest
+        old_content = project_ctx.get_file(filename) or ""
+
         if "@@" in new_content:
             print(f"{COLOR_YELLOW}Detected diff patch for {filename}.{COLOR_RESET}")
             patched = apply_patch_with_system(filename, new_content)
@@ -309,12 +485,31 @@ def project_update(project_ctx, chat_session, instruction):
                 print(f"{COLOR_RED}Failed to apply patch for {filename}.{COLOR_RESET}")
                 continue
             new_content = patched
+
         print(f"\n{COLOR_YELLOW}--- Proposed Modification for {filename} ---{COLOR_RESET}\n")
-        print(diff_preview(old_content, new_content))
+
+        # Only show diff preview if file exists
+        if old_content:
+            print(diff_preview(old_content, new_content))
+        else:
+            print(f"{COLOR_CYAN}New file content:{COLOR_RESET}")
+            print(new_content[:500] + ("..." if len(new_content) > 500 else ""))
+
         print(f"\n{COLOR_YELLOW}----------------------------------------------{COLOR_RESET}\n")
+
+        # Safety check for destructive changes
+        if old_content and len(old_content) > 100 and len(new_content) < len(old_content) * 0.5:
+            print(f"{COLOR_RED}WARNING: The proposed changes significantly reduce file size.{COLOR_RESET}")
+            print(f"{COLOR_RED}This might indicate destructive changes or loss of functionality.{COLOR_RESET}")
+
         confirm = input(f"{COLOR_GREEN}Apply these changes to {filename}? (y/n): {COLOR_RESET}").strip().lower()
         if confirm == "y":
             try:
+                # Ensure directory exists
+                dir_name = os.path.dirname(filename)
+                if dir_name and not os.path.exists(dir_name):
+                    os.makedirs(dir_name, exist_ok=True)
+
                 with open(filename, "w", encoding="utf8") as f:
                     f.write(new_content)
                 print(f"{COLOR_GREEN}{filename} updated successfully.{COLOR_RESET}")
@@ -356,6 +551,7 @@ def project_update(project_ctx, chat_session, instruction):
                     with open(filename, "w", encoding="utf8") as f:
                         f.write(content)
                     print(f"{COLOR_GREEN}File {filename} created successfully.{COLOR_RESET}")
+                    project_ctx.files[filename] = content
                 except Exception as e:
                     print(f"{COLOR_RED}Error creating file {filename}: {e}{COLOR_RESET}")
             else:
@@ -375,7 +571,8 @@ def generate_bash_command(chat_session, project_ctx, instruction):
     command = response.strip()
     # Remove any markdown formatting if present
     command = re.sub(r"^```bash\s*", "", command)
-    command = re.sub(r"```$", "", command)
+    command = re.sub(r"^```\s*", "", command)
+    command = re.sub(r"\s*```$", "", command)
     # Display the command in a distinct, creative box.
     box_width = 60
     box_top = "┌" + "─" * box_width + "┐"
@@ -450,9 +647,11 @@ def main():
     chat_session = ChatSession()
     project_ctx = ProjectContext()
 
+    print(f"{COLOR_GREEN}{COLOR_BOLD}KODY is ready! Type 'help' for available commands.\n{COLOR_RESET}")
+
     while True:
         try:
-            user_input = input(f"{COLOR_GREEN}{COLOR_YELLOW} {COLOR_RESET}").strip()
+            user_input = input(f"\n{COLOR_GREEN}{COLOR_YELLOW} {COLOR_RESET}").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nExiting...")
             break
