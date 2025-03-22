@@ -3,7 +3,6 @@
 ![Shot-2025-03-09-114925](https://github.com/user-attachments/assets/8b6008d2-11a9-4098-a97b-877ba2d5cc8c)
 
 Kody is a powerful tool built to ease the use of ai in system directly. With this tool user can ask for performing codings, running bash commands and etc ai features direcly in their termninal without neeeding to copy pase or anything.
-Kody is just a wrap for fabric tool, therefore it needs the fabric tool (https://github.com/danielmiessler/fabric).
 
 ## Commands
 
@@ -40,18 +39,13 @@ Kody is just a wrap for fabric tool, therefore it needs the fabric tool (https:/
       Exit KODY.
 
 ## Setup
-To use Kody, firstly install the fabric tool.
-Check out fabric's github page for your proeferred way of installation and setup: https://github.com/danielmiessler/fabric
 
-Or if you wish you can download it directly from source (golang) : go install github.com/danielmiessler/fabric@latest
+Modify the config.json with your api key. Currently the config is setup with openrouter, So you can just go and grab the **free** openrouter key and replace your key. You can change the model based on your needs. Currently using free deepseek model (It's the one on which the tool is tested the most) 
 
-Next is to setup fabric with your ai model: thorugh fabric --setup (The tool is mostly tested to work with the openroute's deepseek-chat:free model)
-
-Once your fabric thig is done: 
-Install the tool:
 ```
 git clone https://github.com/kripto-geek/kody.git
 cd kody
+pip install -r requirements.txt
 python kody.py
 ```
 
@@ -65,7 +59,6 @@ Kody is open-source and available under the MIT License.
 
 ## Author
 Kody was created by [Kripto-Geek] and is maintained by the community.
-But the Fabric is backbone of it (Therefore I am Greatfull and special thanks to their creator)
 
 ## Support
 For support, please open an issue on the GitHub repository or reach out via email.
