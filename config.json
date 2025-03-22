@@ -1,0 +1,7 @@
+{
+  "creds": {
+    "key": "<You OPENROUTER's API KEY>",
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "model": "deepseek/deepseek-chat:free"
+  }
+}
